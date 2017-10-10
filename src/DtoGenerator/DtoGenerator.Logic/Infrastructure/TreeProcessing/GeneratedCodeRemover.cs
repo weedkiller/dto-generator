@@ -11,26 +11,10 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
 {
     public class GeneratedCodeRemover : CSharpSyntaxRewriter
     {
-        public int CustomPropertiesCount { get; set; }
-
-        public SyntaxNode FirstCustomMapperMember { get; set; }
-        public SyntaxNode LastCustomMapperMember { get; set; }
-
-        public SyntaxNode FirstCustomProperty { get; set; }
-        public SyntaxNode LastCustomProperty { get; set; }
-
-        public SyntaxNode FirstCustomSelector { get; set; }
-        public SyntaxNode LastCustomSelector { get; set; }
-
-        public SyntaxNode FirstCustomMapperStatement { get; set; }
-        public SyntaxNode LastCustomMapperStatement { get; set; }
-
         private CustomCodeLocator _finder;
 
         public GeneratedCodeRemover(CustomCodeLocator finder)
         {
-            this.CustomPropertiesCount = 0;
-
             this._finder = finder;
         }
 
@@ -76,15 +60,6 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
                 {
                     return null;
                 }
-                else
-                {
-                    if (this.FirstCustomMapperMember == null)
-                        this.FirstCustomMapperMember = node;
-
-                    this.LastCustomMapperMember = node;
-                }
-
-                return null;
             }
 
             return base.VisitFieldDeclaration(node);
@@ -98,15 +73,6 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
                 if (!this._finder.IsNodeWithinCustomCode(node))
                 {
                     return null;
-                }
-                else
-                {
-                    this.CustomPropertiesCount++;
-
-                    if (this.FirstCustomProperty == null)
-                        this.FirstCustomProperty = node;
-
-                    this.LastCustomProperty = node;
                 }
             }
 
@@ -122,13 +88,6 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
                 {
                     return null;
                 }
-                else
-                {
-                    if (this.FirstCustomMapperStatement == null)
-                        this.FirstCustomMapperStatement = node;
-
-                    this.LastCustomMapperStatement = node;
-                }
             }
 
             return base.VisitExpressionStatement(node);
@@ -136,27 +95,30 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
 
         public override SyntaxNode VisitObjectCreationExpression(ObjectCreationExpressionSyntax node)
         {
-            var customExpressions = node.Initializer.Expressions
+            if(node.FirstAncestorOrSelf<PropertyDeclarationSyntax>() != null && 
+                node.FirstAncestorOrSelf<PropertyDeclarationSyntax>().Identifier.Text == "SelectorExpression")
+            {
+                var customExpressions = node.Initializer.Expressions
                 .Where(p => this._finder.IsNodeWithinCustomCode(p))
                 .Select(p => p.WithoutTrivia())
                 .ToList();
 
-            var nodeTokenList = SyntaxFactory.NodeOrTokenList();
+                var nodeTokenList = SyntaxFactory.NodeOrTokenList();
 
-            foreach (var existingExp in customExpressions)
-            {
-                nodeTokenList = nodeTokenList.Add(existingExp);
-                nodeTokenList = nodeTokenList.Add(SyntaxFactory.Token(SyntaxKind.CommaToken).AppendNewLine());
+                foreach (var existingExp in customExpressions)
+                {
+                    nodeTokenList = nodeTokenList.Add(existingExp);
+                    nodeTokenList = nodeTokenList.Add(SyntaxFactory.Token(SyntaxKind.CommaToken).AppendNewLine());
+                }
+
+                var res = node.WithInitializer(node.Initializer
+                    .WithCloseBraceToken(SyntaxFactory.Token(SyntaxKind.CloseBraceToken))
+                    .WithExpressions(SyntaxFactory.SeparatedList<ExpressionSyntax>(nodeTokenList)));
+
+                return res;
             }
 
-            var res = node.WithInitializer(node.Initializer
-                .WithCloseBraceToken(SyntaxFactory.Token(SyntaxKind.CloseBraceToken))
-                .WithExpressions(SyntaxFactory.SeparatedList<ExpressionSyntax>(nodeTokenList)));
-
-            this.FirstCustomSelector = res.Initializer.Expressions.FirstOrDefault();
-            this.LastCustomSelector = res.Initializer.Expressions.LastOrDefault();
-
-            return res;
+            return node;
         }
     }
 }

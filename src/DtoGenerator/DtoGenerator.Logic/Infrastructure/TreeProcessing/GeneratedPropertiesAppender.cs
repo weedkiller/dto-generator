@@ -13,9 +13,13 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
     public class GeneratedPropertiesAppender : CSharpSyntaxRewriter
     {
         private EntityMetadata _metadata;
+        private bool _addDataContractAttrs;
+        private bool _addDataAnnotations;
 
-        public GeneratedPropertiesAppender(EntityMetadata metadata)
+        public GeneratedPropertiesAppender(EntityMetadata metadata, bool addDataContractAttrs, bool addDataAnnotations)
         {
+            this._addDataContractAttrs = addDataContractAttrs;
+            this._addDataAnnotations = addDataAnnotations;
             this._metadata = metadata;
         }
 
@@ -29,7 +33,15 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
 
                 var result = node.WithMembers(membersList);
 
-                if(this._metadata.BaseClassDtoName != null)
+                if (this._addDataContractAttrs)
+                    result = result.WithAttributeLists(SyntaxExtenders.CreateAttributes("DataContract"));
+                else
+                    result = result.WithAttributeLists(new SyntaxList<AttributeListSyntax>());
+
+                if (this._addDataAnnotations && this._metadata.AttributesList!= null)
+                    result = result.AddAttributeLists(this._metadata.AttributesList.ToArray());
+
+                if (this._metadata.BaseClassDtoName != null)
                 {
                     result = result.WithBaseList(this._metadata.BaseClassDtoName.ToBaseClassList());
                 }
@@ -39,7 +51,11 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
 
             if (node.Identifier.Text.Contains("Mapper"))
             {
-                int insertIndex = 0;
+                var selectorExpressionProperty = node.Members.OfType<PropertyDeclarationSyntax>()
+                    .Where(p => p.Identifier.ToString() == "SelectorExpression")
+                    .FirstOrDefault();
+
+                int insertIndex = selectorExpressionProperty == null ? 0 : node.Members.IndexOf(selectorExpressionProperty);
                 var membersList = node.Members;
                 foreach (var prop in _metadata.Properties.Where(p => p.IsCollection))
                 {
@@ -47,7 +63,7 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
                     membersList = membersList.Insert(insertIndex++, newField);
                 }
 
-                if(this._metadata.BaseClassDtoName != null)
+                if (this._metadata.BaseClassDtoName != null)
                 {
                     var newField = SyntaxExtenders.DeclareField(type: GenerateMapperTypeName(this._metadata.BaseClassDtoName), autoCreateNew: true);
                     membersList = membersList.Insert(insertIndex++, newField);
@@ -64,9 +80,9 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
             var declaringProperty = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
             var parentInvocation = node.FirstAncestorOrSelf<InvocationExpressionSyntax>();
 
-            if(declaringProperty != null && 
+            if (declaringProperty != null &&
                 parentInvocation == null &&
-                declaringProperty.Identifier.ToString() == "SelectorExpression" && 
+                declaringProperty.Identifier.ToString() == "SelectorExpression" &&
                 !string.IsNullOrWhiteSpace(this._metadata.BaseClassDtoName))
             {
                 var mapperField = this.GenerateMapperFieldName(this._metadata.BaseClassDtoName);
@@ -79,7 +95,7 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
 
                 return base.Visit(invocationExpression);
             }
-            
+
             return base.VisitParenthesizedExpression(node);
         }
 
@@ -88,21 +104,41 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
             var parentProperty = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
             var parentInvocation = node.FirstAncestorOrSelf<InvocationExpressionSyntax>();
 
-            if (parentProperty != null && parentProperty.Identifier.Text == "SelectorExpression" || 
+            if (parentProperty != null && parentProperty.Identifier.Text == "SelectorExpression" ||
                 parentInvocation != null && parentInvocation.ToString().Contains("SelectorExpression"))
             {
                 var initializerExpressions = GenerateInitializerExpressions(_metadata, "", "p.").ToList();
-                var nodeTokenList = SyntaxFactory.NodeOrTokenList(node.ChildNodesAndTokens())
-                    .RemoveAt(node.ChildNodesAndTokens().Count - 1)
-                    .RemoveAt(0);
+                var expressionsWithSeparators = node.AddExpressions(initializerExpressions.ToArray()).Expressions.GetWithSeparators();
+
+                // This section is here only to format code well. Namely, in initializer expression, to add comma token after each expression and newline after comma.
+                var list = new List<SyntaxNodeOrToken>();
+                var expressionTrailingTrivia = new List<SyntaxTrivia>();
                 
-                foreach (var exp in initializerExpressions)
+                foreach(var item in expressionsWithSeparators.ToList())
                 {
-                    nodeTokenList = nodeTokenList.Add(exp);
-                    nodeTokenList = nodeTokenList.Add(SyntaxFactory.Token(SyntaxKind.CommaToken).AppendNewLine());
+                    // This is required if we have a custom code trivia which is attached to expression node, but should be attached after comma-token.
+                    if (item.IsToken)
+                    {
+                        expressionTrailingTrivia.Add(SyntaxExtenders.EndOfLineTrivia);
+                        list.Add(item.AsToken().WithTrailingTrivia(expressionTrailingTrivia.ToArray()));
+                        expressionTrailingTrivia.Clear();
+                    }
+                        
+                    else
+                    {
+                        expressionTrailingTrivia = item.GetTrailingTrivia().ToList();
+                        list.Add(item.WithTrailingTrivia());
+                    }
                 }
 
-                return node.WithExpressions(SyntaxFactory.SeparatedList<ExpressionSyntax>(nodeTokenList));
+                if(list.Any() && list.Last().IsNode)
+                {
+                    var item = list.Last();
+                    list.Remove(item);
+                    list.Add(item.WithTrailingTrivia(expressionTrailingTrivia));
+                }
+
+                return node.WithExpressions(SyntaxFactory.SeparatedList<ExpressionSyntax>(list));
             }
 
             return base.VisitInitializerExpression(node);
@@ -119,7 +155,7 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
                     statements = statements.Add(st);
                 }
 
-                if(!string.IsNullOrWhiteSpace(this._metadata.BaseClassDtoName))
+                if (!string.IsNullOrWhiteSpace(this._metadata.BaseClassDtoName))
                 {
                     var mapperField = this.GenerateMapperFieldName(this._metadata.BaseClassDtoName);
                     var st = SyntaxExtenders.InvocationStatement($"this.{mapperField}.MapToModel", "dto", "model");
@@ -171,7 +207,7 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
                     foreach (var x in GenerateProperties(prop.RelationMetadata, prefix + prop.Name))
                         yield return x;
                 }
-                else if(prop.IsCollection || prop.IsSimpleProperty)
+                else if (prop.IsCollection || prop.IsSimpleProperty)
                 {
                     TypeSyntax type = null;
                     var identifier = prefix + prop.Name;
@@ -185,7 +221,19 @@ namespace DtoGenerator.Logic.Infrastructure.TreeProcessing
                         type = SyntaxFactory.IdentifierName(prop.Type);
                     }
 
-                    yield return SyntaxExtenders.DeclareAutoProperty(type, identifier); 
+                    var result = SyntaxExtenders.DeclareAutoProperty(type, identifier);
+
+                    
+
+                    if (this._addDataContractAttrs)
+                        result = result.WithAttributeLists(SyntaxExtenders.CreateAttributes("DataMember"));
+                    else
+                        result = result.WithAttributeLists(new SyntaxList<AttributeListSyntax>());
+
+                    if (this._addDataAnnotations && prop.AttributesList != null)
+                        result = result.AddAttributeLists(prop.AttributesList.ToArray());
+
+                    yield return result;
                 }
             }
         }

@@ -8,6 +8,23 @@ namespace Existing.Filled.Dto
 {
     public class ComplexEntityDTO
     {
+        ////BCC/ BEGIN CUSTOM CODE SECTION 
+        // Some custom property leading comment - should not dissapear
+        public int CustomProperty { get; set; }
+
+        public int SomeOtherCustomProperty
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(OtherString))
+                    return new int();
+
+                return new List<string>() { this.OtherString }.Count();
+            }
+        }
+
+        ////ECC/ END CUSTOM CODE SECTION
+
         public string Name { get; set; }
         public DateTime? Date { get; set; }
         public string OtherString { get; set; }
@@ -18,11 +35,7 @@ namespace Existing.Filled.Dto
         public IEnumerable<Something2> Somethings2 { get; set; }
         public IEnumerable<Something3> Somethings3 { get; set; }
 
-        ////BCC/ BEGIN CUSTOM CODE SECTION 
-
-        public int CustomProperty { get; set; }
-
-        ////ECC/ END CUSTOM CODE SECTION
+        
     }
 
     public class ComplexEntityMapper : MapperBase<ComplexEntity, ComplexEntityDTO>
@@ -50,7 +63,7 @@ namespace Existing.Filled.Dto
                     Somethings3 = p.Somethings3.Select(this._something3Mapper.SelectorExpression),
 
                     ////BCC/ BEGIN CUSTOM CODE SECTION 
-
+                    
                     CustomProperty = p.CustomProperty,
 
                     ////ECC/ END CUSTOM CODE SECTION
@@ -65,8 +78,13 @@ namespace Existing.Filled.Dto
             model.OtherString = dto.OtherString;
 
             ////BCC/ BEGIN CUSTOM CODE SECTION 
-
+            // Some custom property 2 leading comment - should not dissapear
             model.CustomProperty = dto.CustomProperty;
+
+            var t = new ComplexEntityDTO()
+            {
+                CustomProperty = ""
+            };
 
             ////ECC/ END CUSTOM CODE SECTION
         }
