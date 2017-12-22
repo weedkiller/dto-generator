@@ -18,7 +18,7 @@ namespace DtoGenerator.Logic.Infrastructure
 {
     public class DtoBuilder
     {
-        public static SyntaxTree BuildDto(EntityMetadata entity, SyntaxTree existingDto = null, string dtoNamespace = null, string mapperNamespace = null, bool generateMapper = true)
+        public static SyntaxTree BuildDto(EntityMetadata entity, SyntaxTree existingDto = null, string dtoNamespace = null, string mapperNamespace = null, bool generateMapper = true, bool addContractAttrs = false, bool addDataAnnotations = false)
         {
             CompilationUnitSyntax root = null;
 
@@ -39,21 +39,20 @@ namespace DtoGenerator.Logic.Infrastructure
                 var rewriter = new GeneratedCodeRemover(finder);
                 existingRoot = rewriter.Visit(existingRoot);
 
-                if(rewriter.FirstCustomProperty == null)
-                {
-                    var commentAppender = new EmptyTreeCommentAppender();
-                    root = commentAppender.Visit(existingRoot) as CompilationUnitSyntax;
-                }
-                else
-                {
-                    var commentWrapper = new CustomCodeCommentWrapper(rewriter);
-                    root = commentWrapper.Visit(existingRoot) as CompilationUnitSyntax;
-                }
+                var customCodePreserver = new CustomCodePreserver();
+                root = customCodePreserver.Visit(existingRoot) as CompilationUnitSyntax;
             }
 
-            root = root.AppendUsing(mapperNamespace, entity.Namespace);
+            if(generateMapper)
+                root = root.AppendUsing(mapperNamespace, entity.Namespace);
 
-            var generatedPropertiesAppender = new GeneratedPropertiesAppender(entity);
+            if (addContractAttrs)
+                root = root.AppendUsing("System.Runtime.Serialization");
+
+            if (addDataAnnotations)
+                root = root.AppendUsing("System.ComponentModel.DataAnnotations");
+
+            var generatedPropertiesAppender = new GeneratedPropertiesAppender(entity, addContractAttrs, addDataAnnotations);
             root = generatedPropertiesAppender.Visit(root) as CompilationUnitSyntax;
 
             var newLineRemover = new NewLineRemover();

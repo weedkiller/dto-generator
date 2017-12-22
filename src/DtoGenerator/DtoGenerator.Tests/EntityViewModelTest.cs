@@ -58,7 +58,7 @@ namespace DtoGenerator.Tests
             vm.DtoName = "CityDTO";
             var dtoLocation = solution.GetMostLikelyDtoLocation();
 
-            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), true);
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), true, false, false);
             Assert.IsNotNull(modifiedSolution);
 
             var cityDto = modifiedSolution.GetChanges(solution)
@@ -73,8 +73,8 @@ namespace DtoGenerator.Tests
             var source = await cityDto.GetTextAsync();
             var sourceCode = source.ToString();
 
-            Assert.AreEqual(3, Regex.Matches(sourceCode, CustomCodeCommentWrapper.CustomCodeCommentBegin).Count);
-            Assert.AreEqual(3, Regex.Matches(sourceCode, CustomCodeCommentWrapper.CustomCodeCommentEnd).Count);
+            Assert.AreEqual(4, Regex.Matches(sourceCode, CustomCodePreserver.CustomCodeCommentBegin).Count);
+            Assert.AreEqual(4, Regex.Matches(sourceCode, CustomCodePreserver.CustomCodeCommentEnd).Count);
 
             Assert.IsTrue(sourceCode.Contains("CustomProperty = p.Name + p.PostalCode,"));
         }
@@ -95,7 +95,7 @@ namespace DtoGenerator.Tests
             vm.DtoName = "CityDTO";
             var dtoLocation = solution.GetMostLikelyDtoLocation();
 
-            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), false);
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), false, false, false);
             Assert.IsNotNull(modifiedSolution);
 
             var cityDto = modifiedSolution.GetChanges(solution)
@@ -111,6 +111,7 @@ namespace DtoGenerator.Tests
             var sourceCode = source.ToString();
 
             Assert.IsFalse(sourceCode.Contains("Mapper"));
+            Assert.IsFalse(sourceCode.Contains("unknown"));
         }
 
         [TestMethod]
@@ -129,7 +130,7 @@ namespace DtoGenerator.Tests
             vm.DtoName = "PersonDTO";
             var dtoLocation = solution.GetMostLikelyDtoLocation();
 
-            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), true);
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), true, false, false);
             Assert.IsNotNull(modifiedSolution);
 
             var changeSet = modifiedSolution.GetChanges(solution);
@@ -181,7 +182,7 @@ namespace DtoGenerator.Tests
 
             var dtoLocation = solution.GetMostLikelyDtoLocation();
 
-            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), true);
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), true, false, false);
             Assert.IsNotNull(modifiedSolution);
 
             var changeSet = modifiedSolution.GetChanges(solution);
@@ -232,7 +233,7 @@ namespace DtoGenerator.Tests
             Assert.IsTrue(countryProp.RelatedEntity.Properties.Where(p => p.Name == "Code").Any(p => p.IsSelected));
             Assert.IsFalse(countryProp.RelatedEntity.Properties.Where(p => p.Name == "Name").Any(p => p.IsSelected));
 
-            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.GetMetadata(), true);
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.GetMetadata(), true, false, false);
             Assert.IsNotNull(modifiedSolution);
 
             var cityDto = modifiedSolution.GetChanges(solution)
@@ -265,7 +266,7 @@ namespace DtoGenerator.Tests
             var dtoLocation = solution.GetMostLikelyDtoLocation();
             var vm = await PropertySelectorViewModel.Create(personClassDoc, "PersonCustomDTO", dtoLocation);
 
-            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.GetMetadata(), true);
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.GetMetadata(), true, false, false);
             Assert.IsNotNull(modifiedSolution);
 
             var changeSet = modifiedSolution.GetChanges(solution);
@@ -307,6 +308,203 @@ namespace DtoGenerator.Tests
             var vm = await PropertySelectorViewModel.Create(roleDoc, "RoleDTO", dtoLocation, existingDto);
 
             Assert.IsTrue(vm.EntityModel.ReuseBaseEntityMapper);
+        }
+
+        [TestMethod]
+        public async Task WriteDto_ExistingSolution_DataContract()
+        {
+            var msWorkspace = MSBuildWorkspace.Create();
+            var solution = msWorkspace.OpenSolutionAsync(this.TestSolution.FullName).Result;
+            solution = solution.GetIsolatedSolution();
+
+            var personClassDoc = solution.Projects
+                .SelectMany(p => p.Documents)
+                .Where(p => p.Name == "City.cs")
+                .FirstOrDefault();
+
+            var vm = await EntityViewModel.CreateRecursive(personClassDoc);
+            vm.DtoName = "CityDTO";
+            var dtoLocation = solution.GetMostLikelyDtoLocation();
+
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), false, true, false);
+            Assert.IsNotNull(modifiedSolution);
+
+            var cityDto = modifiedSolution.GetChanges(solution)
+                .GetProjectChanges().Single()
+                .GetChangedDocuments()
+                .Select(p => modifiedSolution.GetProject(p.ProjectId).GetDocument(p))
+                .Where(p => p.Name == "CityDTO.cs")
+                .FirstOrDefault();
+
+            Assert.IsNotNull(cityDto);
+
+            var source = await cityDto.GetTextAsync();
+            var sourceCode = source.ToString();
+
+            Assert.IsTrue(sourceCode.Contains("[DataContract]"));
+            Assert.IsTrue(sourceCode.Contains("[DataMember]"));
+            Assert.IsTrue(sourceCode.Contains("using System.Runtime.Serialization;"));
+        }
+
+        [TestMethod]
+        public async Task WriteDto_ExistingSolution_NoDataContract()
+        {
+            var msWorkspace = MSBuildWorkspace.Create();
+            var solution = msWorkspace.OpenSolutionAsync(this.TestSolution.FullName).Result;
+            solution = solution.GetIsolatedSolution();
+
+            var personClassDoc = solution.Projects
+                .SelectMany(p => p.Documents)
+                .Where(p => p.Name == "City.cs")
+                .FirstOrDefault();
+
+            var vm = await EntityViewModel.CreateRecursive(personClassDoc);
+            vm.DtoName = "CityDTO";
+            var dtoLocation = solution.GetMostLikelyDtoLocation();
+
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), false, false, false);
+            Assert.IsNotNull(modifiedSolution);
+
+            var cityDto = modifiedSolution.GetChanges(solution)
+                .GetProjectChanges().Single()
+                .GetChangedDocuments()
+                .Select(p => modifiedSolution.GetProject(p.ProjectId).GetDocument(p))
+                .Where(p => p.Name == "CityDTO.cs")
+                .FirstOrDefault();
+
+            Assert.IsNotNull(cityDto);
+
+            var source = await cityDto.GetTextAsync();
+            var sourceCode = source.ToString();
+
+            Assert.IsFalse(sourceCode.Contains("[DataContract]"));
+            Assert.IsFalse(sourceCode.Contains("[DataMember]"));
+        }
+
+        [TestMethod]
+        public async Task WriteDto_ExistingSolution_FishWithIdOverride()
+        {
+            var msWorkspace = MSBuildWorkspace.Create();
+            var solution = msWorkspace.OpenSolutionAsync(this.TestSolution.FullName).Result;
+            solution = solution.GetIsolatedSolution();
+
+            var fishClassDoc = solution.Projects
+                .SelectMany(p => p.Documents)
+                .Where(p => p.Name == "Fish.cs")
+                .FirstOrDefault();
+
+            var vm = await EntityViewModel.CreateRecursive(fishClassDoc);
+            vm.DtoName = "FishDTO";
+            var dtoLocation = solution.GetMostLikelyDtoLocation();
+
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), true, false, false);
+            Assert.IsNotNull(modifiedSolution);
+
+            var changeSet = modifiedSolution.GetChanges(solution);
+            Assert.AreEqual(1, changeSet.GetProjectChanges().Count());
+
+            var projectChanges = changeSet.GetProjectChanges().Single();
+            Assert.AreEqual(2, projectChanges.GetAddedDocuments().Count());
+
+            var addedDocs = projectChanges
+                .GetAddedDocuments()
+                .Select(p => modifiedSolution.GetProject(p.ProjectId).GetDocument(p));
+
+            var fishDto = addedDocs
+                .Where(p => p.Name == "FishDTO.cs")
+                .FirstOrDefault();
+
+            Assert.IsNotNull(fishDto);
+
+            var source = await fishDto.GetTextAsync();
+            var sourceCode = source.ToString();
+
+            Assert.IsTrue(sourceCode.IndexOf("public int Id { get; set; }") > 0);
+            Assert.AreEqual(sourceCode.IndexOf("public int Id { get; set; }"), sourceCode.LastIndexOf("public int Id { get; set; }"));
+        }
+
+        [TestMethod]
+        public async Task WriteDto_ExistingSolution_CityDTORewritePreserveCustomExpression()
+        {
+            var msWorkspace = MSBuildWorkspace.Create();
+            var solution = msWorkspace.OpenSolutionAsync(this.TestSolution.FullName).Result;
+            solution = solution.GetIsolatedSolution();
+
+            var personClassDoc = solution.Projects
+                .SelectMany(p => p.Documents)
+                .Where(p => p.Name == "City.cs")
+                .FirstOrDefault();
+
+            var vm = await EntityViewModel.CreateRecursive(personClassDoc);
+            vm.DtoName = "CityDTO";
+            var dtoLocation = solution.GetMostLikelyDtoLocation();
+
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), true, false, false);
+            Assert.IsNotNull(modifiedSolution);
+
+            var cityDto = modifiedSolution.GetChanges(solution)
+                .GetProjectChanges().Single()
+                .GetChangedDocuments()
+                .Select(p => modifiedSolution.GetProject(p.ProjectId).GetDocument(p))
+                .Where(p => p.Name == "CityDTO.cs")
+                .FirstOrDefault();
+
+            Assert.IsNotNull(cityDto);
+
+            var source = await cityDto.GetTextAsync();
+            var sourceCode = source.ToString();
+
+            Assert.IsTrue(sourceCode.Contains("CustomSelectorExpression"));
+        }
+
+        [TestMethod]
+        public async Task WriteDto_ExistingSolution_ComputerDTORewritePreserveCustomCode()
+        {
+            var msWorkspace = MSBuildWorkspace.Create();
+            var solution = msWorkspace.OpenSolutionAsync(this.TestSolution.FullName).Result;
+            solution = solution.GetIsolatedSolution();
+
+            var computerClassDoc = solution.Projects
+                .SelectMany(p => p.Documents)
+                .Where(p => p.Name == "Computer.cs")
+                .FirstOrDefault();
+
+            var vm = await EntityViewModel.CreateRecursive(computerClassDoc);
+            vm.DtoName = "ComputerDTO";
+            var dtoLocation = solution.GetMostLikelyDtoLocation();
+
+            var modifiedSolution = await solution.WriteDto(dtoLocation, vm.ConvertToMetadata(), true, false, false);
+            Assert.IsNotNull(modifiedSolution);
+
+            var computerDto = modifiedSolution.GetChanges(solution)
+                .GetProjectChanges().Single()
+                .GetChangedDocuments()
+                .Select(p => modifiedSolution.GetProject(p.ProjectId).GetDocument(p))
+                .Where(p => p.Name == "ComputerDTO.cs")
+                .FirstOrDefault();
+
+            Assert.IsNotNull(computerDto);
+
+            var source = await computerDto.GetTextAsync();
+            var sourceCode = source.ToString();
+
+            Assert.IsTrue(sourceCode.IndexOf("private int _customField;") > sourceCode.IndexOf("////BCC/ BEGIN CUSTOM CODE SECTION"));
+            Assert.IsTrue(sourceCode.IndexOf("public void EndMethod()") < sourceCode.IndexOf("////ECC/ END CUSTOM CODE SECTION"));
+
+            sourceCode = sourceCode.Substring(sourceCode.IndexOf("public class ComputerMapper"));
+
+            Assert.IsTrue(sourceCode.IndexOf("public Expression<Func<City, ComputerDTO>> SelectorExpressionFromCity") > sourceCode.IndexOf("////BCC/ BEGIN CUSTOM CODE SECTION"));
+            Assert.IsTrue(sourceCode.IndexOf("public void Test()") < sourceCode.IndexOf("////ECC/ END CUSTOM CODE SECTION"));
+
+            sourceCode = sourceCode.Substring(sourceCode.IndexOf("public override Expression<Func<Computer, ComputerDTO>> SelectorExpression"));
+
+            Assert.IsTrue(sourceCode.IndexOf("Xy = 77,") > sourceCode.IndexOf("////BCC/ BEGIN CUSTOM CODE SECTION"));
+            Assert.IsTrue(sourceCode.IndexOf("// another comment") < sourceCode.IndexOf("////ECC/ END CUSTOM CODE SECTION"));
+
+            sourceCode = sourceCode.Substring(sourceCode.IndexOf("public override void MapToModel"));
+
+            Assert.IsTrue(sourceCode.IndexOf("var x = 0;") > sourceCode.IndexOf("////BCC/ BEGIN CUSTOM CODE SECTION"));
+            Assert.IsTrue(sourceCode.IndexOf("model.Cpus = x;") < sourceCode.IndexOf("////ECC/ END CUSTOM CODE SECTION"));
         }
     }
 }

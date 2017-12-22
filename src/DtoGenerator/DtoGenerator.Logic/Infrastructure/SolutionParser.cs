@@ -68,11 +68,12 @@ namespace Microsoft.CodeAnalysis
         /// <param name="dtoLocation"></param>
         /// <param name="metadata"></param>
         /// <returns>Modified solution containing changes to apply to workspace</returns>
-        public static async Task<Solution> WriteDto(this Solution solution, SolutionLocation dtoLocation, EntityMetadata metadata, bool generateMapper)
+        public static async Task<Solution> WriteDto(this Solution solution, SolutionLocation dtoLocation, EntityMetadata metadata, bool generateMapper, bool addContractAttrs, bool addDataAnnotations)
         {
             var project = solution.Projects
-                    .Where(p => p.Name.Contains(dtoLocation.Project))
-                    .FirstOrDefault();
+                .Where(p => p.Name.Contains(dtoLocation.Project))
+                .OrderBy(p => p.Name) // Due to .NET core project which have more complex project name, cannot use ==
+                .FirstOrDefault();
 
             var compilation = await project.GetCompilationAsync();
             var existingDtoDocument = compilation.GetDocumentForSymbol(project.Solution, metadata.DtoName);
@@ -81,7 +82,7 @@ namespace Microsoft.CodeAnalysis
             if (existingDtoDocument != null)
                 existingSyntaxTree = await existingDtoDocument.GetSyntaxTreeAsync();
 
-            var dtoNamespace = dtoLocation.ToNamespace();
+            var dtoNamespace = dtoLocation.ToNamespace(project.AssemblyName);
             var mapperNamespace = "unknown";
 
             var mapperDoc = compilation.GetDocumentForSymbol(project.Solution, "MapperBase");
@@ -101,7 +102,7 @@ namespace Microsoft.CodeAnalysis
                     .FirstOrDefault();
             }
 
-            var syntaxTree = DtoBuilder.BuildDto(metadata, dtoNamespace: dtoNamespace, existingDto: existingSyntaxTree, mapperNamespace: mapperNamespace, generateMapper: generateMapper);
+            var syntaxTree = DtoBuilder.BuildDto(metadata, dtoNamespace: dtoNamespace, existingDto: existingSyntaxTree, mapperNamespace: mapperNamespace, generateMapper: generateMapper, addContractAttrs: addContractAttrs, addDataAnnotations: addDataAnnotations);
 
             if (existingDtoDocument == null)
             {
@@ -154,6 +155,25 @@ namespace Microsoft.CodeAnalysis
                 .FirstOrDefault();
 
             return solution.GetDocument(docId);
+        }
+
+        public static List<DocumentId> GetDocumentIdsToOpen(Solution newSolution, Solution oldSolution)
+        {
+            try
+            {
+                var changes = newSolution.GetChanges(oldSolution);
+                var addedDocs = changes.GetProjectChanges()
+                    .SelectMany(p => p.GetAddedDocuments());
+
+                var modifiedDocs = changes.GetProjectChanges()
+                    .SelectMany(p => p.GetChangedDocuments());
+
+                return addedDocs.Concat(modifiedDocs).ToList();
+            }
+            catch(Exception)
+            {
+                return new List<DocumentId>();
+            }
         }
     }
 }
